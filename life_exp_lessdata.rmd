@@ -1,0 +1,346 @@
+##############################################################################################
+classical lm model vs mixed model vs bayesian model comparisons
+
+model comparison is done on the life expectancy dataset to see the accuracy of predictions
+
+Dataset- life_exp is the original dataset that contains information about life expectancy, population and 
+gdp for several years.
+life_exp_2 is a smaller version of the original dataset life_exp to compare the prdiction results 
+
+
+```{r}
+library(lme4)
+library(rjags)
+library(knitr)
+
+
+setwd('~garimagarg/Documents/ggargucsc_github/Mixedmodel vs Bayesian comparison')
+
+#load the dataset
+#analysis is done on life expectancy data
+expec<-read.csv("life_exp_2.csv", header=TRUE)
+
+#omit the na values
+expec1<-na.omit(expec)
+
+#using the log transformation on population predictor
+x1<-log10(expec1$pop)
+#using the log transformation on gdpPercap predictor
+x2<-log10(expec1$gdpPercap)
+
+#response variable is life expectancy
+y<-expec1$lifeExp
+
+ypred<-NULL
+pred.data<-NULL
+
+
+############ CLASSICAL LM METHOD ##################
+#the first model is lm method, here variation by country is not taken into account
+
+model_lm<-function()
+{
+m1<-lm(y~x1+x2)
+
+#predicted values based on lm coefficients
+ypred<- coef(m1)[1]+coef(m1)[2]*x1+coef(m1)[3]*x2
+resid<-y-ypred
+
+par(mfrow=c(2,3), mar = .1+ c(2,2,2,2))
+plot(ypred, y,  xlim=c(range(y)), xlab="Predicted", ylab="Observed", main="lm method")
+abline(0,1)
+plot(ypred, resid, xlim=c(range(y)), xlab="Predicted", ylab="Residuals", main="lm method")
+abline(h=0)
+
+hist(resid)
+
+##predict for 1997 form original life expectancy dataset
+life_exp_original<-read.csv("life_exp.csv", header=TRUE)
+life_exp_original1<-na.omit(life_exp_original)
+
+#getting the data for year 1997 from original file to compare the results obtained from lm method
+data.subset<-life_exp_original1[life_exp_original1$year==1997,]
+pop<-log10(data.subset$pop)
+gdp<-log10(data.subset$gdpPercap)
+
+pred.data<-NULL
+
+for(i in 1:nrow(data.subset))
+{
+  #using the lm coefficients, prediction is done for 1997
+pred.data[i]<-coef(m1)[1]+ coef(m1)[2]*pop[i]+coef(m1)[3]*gdp[i]
+}
+
+lifeExp_1997<-data.subset$lifeExp
+
+#predicted values for life expectancy are compared with original values for life expectancy for year 1997
+plot(pred.data, lifeExp_1997, xlim=c(range(lifeExp_1997)), xlab="Predicted", ylab="Observed", main="lm method 1997")
+abline(0,1)
+
+}
+
+
+################################################################################
+#the second model is mixed model, here variation by country is taken into account, 
+# also how gdp varies by country is taken into account
+#varying intercept and varying slope model
+
+model_lmer<-function()
+{
+m2<-lmer(y~ x1+x2+(1+x2|country), data=expec1, na.action="na.omit", REML=FALSE)
+
+temp<-data.frame(coef(m2)[1])
+
+ypred<-predict(m2)
+resid<-y-ypred
+
+par(mfrow=c(2,3), mar = .1+ c(2,2,2,2))
+plot(ypred, y,  xlim=c(range(y)), xlab="Predicted", ylab="Observed", main="lmer method")
+abline(0,1)
+plot(ypred, resid, xlim=c(range(y)), xlab="Predicted", ylab="Residuals", main="lmer method")
+abline(h=0)
+
+hist(resid)
+
+
+##prediction for 1997
+life_exp_original<-read.csv("life_exp.csv", header=TRUE)
+life_exp_original1<-na.omit(life_exp_original)
+
+
+data.subset<-life_exp_original1[life_exp_original1$year==1997,]
+pop<-log10(data.subset$pop)
+gdp<-log10(data.subset$gdpPercap)
+pred.data<-NULL
+
+for(i in 1:nrow(data.subset))
+{
+  #predicted values are calculated for each country
+p<-data.subset$country[i]
+pred.data[i]<-temp[p, 1]+ temp[p,2]*pop[i]+temp[p,3]*gdp[i]
+}
+
+lifeExp_1997<-data.subset$lifeExp
+
+#predicted values are now compared with original values to see the accuracy of prediction
+plot(pred.data,lifeExp_1997, xlim=c(range(lifeExp_1997)),xlab="Predicted", ylab="Observed", main="lmer method 1997" )
+abline(0,1)
+
+}
+
+###########################################################################################
+
+#Bayesian model using non-informative priors
+#jags is used to run gibbs sampling alogorithm
+#varying intercept and varying slope model
+
+bayesian_model_noninformativePrior<-function()
+{
+cat('model {
+for (i in 1:n){
+y[i] ~ dnorm (y.hat[i], tau.y)
+y.hat[i] <- a[country[i]] + c*x1[i]+b[country[i]]*x2[i]
+}
+c ~ dnorm (0, .0001)
+tau.y <- pow(sigma.y, -2)
+sigma.y ~ dunif (0, 100)
+for (j in 1:J){
+a[j] ~ dnorm (mu.a, tau.a)
+b[j] ~ dnorm (mu.b, tau.b)
+}
+mu.a ~ dnorm (0, .0001)
+mu.b ~ dnorm (0, .0001)
+tau.a <- pow(sigma.a, -2)
+sigma.a ~ dunif (0, 100)
+tau.b <- pow(sigma.b, -2)
+sigma.b ~ dunif (0, 100)
+}', file={f <- tempfile()})
+
+  n = 150
+ J = 25
+
+jags_n <-jags.model(f, data = list('y' = y, 'x1' = x1,'x2' = x2, "n" = n, "J"=J,'country'=country),
+n.chains = 3, n.adapt = 100)
+
+
+posterior <- coda.samples(jags_n, c("a", "b","c", "mu.a", "mu.b", "sigma.y", "sigma.a", "sigma.b") ,n.iter=10000)
+#summary(posterior)
+
+#one can check the trace plots for convergence
+#plot(posterior)
+
+burn.in <- 1000
+#summary(posterior, start = burn.in)$quantiles[, c(3,1, 5)]
+
+#posterior mean for variation by country
+a.posterior.mean <- summary(posterior, start = burn.in)$statistics[1:25, "Mean"]
+
+#posterior mean for variation by gdp
+b.posterior.mean <- summary(posterior, start = burn.in)$statistics[26:50, "Mean"]
+
+#posterior mean for population parameter
+c.posterior.mean <- summary(posterior, start = burn.in)$statistics["c", "Mean"]
+sigmay.posterior.mean<-summary(posterior, start = burn.in)$statistics["sigma.y", "Mean"]
+
+
+#point estimate for mean to draw a sample for life expectancy
+ymean<-a.posterior.mean[country]+c.posterior.mean*x1+b.posterior.mean[country]*x2
+for(i in 1:n)
+ypred[i]<-rnorm(1, ymean[i], sd=sqrt(sigmay.posterior.mean))
+
+yresid=y-ypred
+
+par(mfrow=c(2,3), mar = .1+ c(2,2,2,2))
+
+#plot of predicted vs observed
+plot(ypred, y, xlim=c(range(y)), xlab="Predicted", ylab="Observed", main="Bayesian method")
+abline(0,1)
+
+#plot of residuals
+plot(ypred, yresid, xlim=c(range(y)), xlab="Predicted", ylab="Residuals", main="Bayesian method")
+abline(h=0)
+
+hist(yresid)
+
+
+#predicion for 1997
+life_exp_original<-read.csv("life_exp.csv", header=TRUE)
+life_exp_original1<-na.omit(life_exp_original)
+
+
+data.subset<-life_exp_original1[life_exp_original1$year==1997,]
+
+pop<-log10(data.subset$pop)
+gdp<-log10(data.subset$gdpPercap)
+mean.data<-NULL
+
+for(i in 1:nrow(data.subset))
+{
+  p<-data.subset$country.r[i]
+  mean.data[i]<-a.posterior.mean[p]+c.posterior.mean*pop[i]+b.posterior.mean[p]*gdp[i]
+  pred.data[i]<-rnorm(1, mean.data[i],sd=sqrt(sigmay.posterior.mean) )
+}
+
+
+lifeExp_1997<-data.subset$lifeExp
+plot(pred.data,lifeExp_1997, xlim=c(range(lifeExp_1997)),xlab="Predicted", ylab="Observed", main="Bayesian Prediction 1997" )
+abline(0,1)
+
+}
+
+
+####################################################################################################
+#bayesian model with informative prior, 
+#information for prior was taken from original dataset
+
+bayesian_model_informativePrior<-function()
+{
+cat('model {
+for (i in 1:n){
+y[i] ~ dnorm(y.hat[i], tau.y)
+y.hat[i] <- a[country[i]] + c*x1[i]+ b[country[i]]*x2[i]
+}
+c ~ dnorm (40, 1)
+tau.y <- pow(sigma.y, -2)
+sigma.y ~ dunif (0, 2)
+for (j in 1:J){
+a[j] ~ dnorm (a.hat[j], tau.a)
+b[j] ~ dnorm (b.hat[j], tau.b)
+a.hat[j] <- mu.a
+b.hat[j] <- mu.b
+}
+mu.a ~ dnorm (-217, .00859)
+mu.b ~ dnorm (1.82, .155)
+tau.a <- pow(sigma.a, -2)
+tau.b <- pow(sigma.b, -2)
+sigma.a ~ dunif (40, 60)
+sigma.b ~ dunif (9, 14)
+}', file={f <- tempfile()})
+
+  n = 150
+ J = 25
+#W <- diag (2)
+jags_n <-jags.model(f, data = list('y' = y, 'x1' = x1,'x2' = x2, "n" = n, "J"=J,'country'=country),
+n.chains = 3, n.adapt = 100)
+
+#as.mcmc(jags_new)
+
+posterior <- coda.samples(jags_n, c("a", "b","c", "mu.a", "mu.b", "sigma.y", "sigma.a", "sigma.b" ) ,n.iter=10000)
+#summary(posterior)
+#plot(posterior)
+
+burn.in <- 2000
+summary(posterior, start = burn.in)
+
+
+
+a.posterior.mean <- summary(posterior, start = burn.in)$statistics[1:25, "Mean"]
+
+b.posterior.mean <- summary(posterior, start = burn.in)$statistics[26:50, "Mean"]
+c.posterior.mean <- summary(posterior, start = burn.in)$statistics["c", "Mean"]
+sigmay.posterior.mean<-summary(posterior, start = burn.in)$statistics["sigma.y", "Mean"]
+
+
+ymean<-a.posterior.mean[country]+c.posterior.mean*x1+b.posterior.mean[country]*x2
+for(i in 1:n)
+ypred[i]<-rnorm(1, ymean[i], sd=sqrt(sigmay.posterior.mean))
+
+
+yresid=y-ypred
+
+par(mfrow=c(2,3), mar = .1+ c(2,2,2,2))
+plot(ypred, y, xlim=c(range(y)), xlab="Predicted", ylab="Observed", main="Bayesian method")
+abline(0,1)
+plot(ypred, yresid, xlim=c(range(y)), xlab="Predicted", ylab="Residuals", main="Bayesian method")
+abline(h=0)
+
+hist(yresid)
+
+#predicion for 1997
+
+
+e<-read.csv("life_exp.csv", header=TRUE)
+e1<-na.omit(e)
+
+
+data.subset<-e1[e1$year==1997,]
+
+pop<-log10(data.subset$pop)
+gdp<-log10(data.subset$gdpPercap)
+mean.data<-NULL
+
+for(i in 1:nrow(data.subset))
+{
+  p<-data.subset$country.r[i]
+  mean.data[i]<-a.posterior.mean[p]+c.posterior.mean*pop[i]+b.posterior.mean[p]*gdp[i]
+  pred.data[i]<-rnorm(1, mean.data[i],sd=sqrt(sigmay.posterior.mean) )
+}
+
+
+y.tmp<-data.subset$lifeExp
+plot(pred.data,y.tmp, xlim=c(range(y.tmp)),xlab="Predicted", ylab="Observed", main="Bayesian Prediction 1997" )
+abline(0,1)
+}
+
+
+################################################################################################
+
+#all the functions are called here to compare the results
+
+expec<-read.csv("life_exp_2.csv", header=TRUE)
+expec1<-na.omit(expec)
+x1<-log10(expec1$pop)
+x2<-log10(expec1$gdpPercap)
+y<-expec1$lifeExp
+country<-factor(expec1$country.r)
+
+model_lm()
+model_lmer()
+bayesian_model_noninformativePrior()
+bayesian_model_informativePrior()
+
+
+
+
+
+##################################################################
