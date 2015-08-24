@@ -1,6 +1,6 @@
-# BayesianStatistics
+# Model comparisons
 
-I have included some of the examples based on Gibbs Sampling, Importance Sampling, Grid Approximation etc as part of my course work in one of the Bayesian courses.
+I have compared classical, mixed and bayesian models to find out the accurarcy of predictions in each of the models.
 
 
  Garima
