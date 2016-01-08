@@ -1,6 +1,6 @@
 # Model comparisons
 
-I have compared classical, mixed and bayesian models to find out the accurarcy of predictions in each of the models.
+I have compared classical, mixed and bayesian models to find out the accuracy of predictions in each of the models.
 
 Here's the html file that shows the comparison between these models:
 
