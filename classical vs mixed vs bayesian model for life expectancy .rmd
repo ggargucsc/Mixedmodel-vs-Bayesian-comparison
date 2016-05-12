@@ -18,7 +18,7 @@ setwd('~garimagarg/Documents/ggargucsc_github/Mixedmodel vs Bayesian comparison'
 
 #load the dataset
 #analysis is done on life expectancy data
-expec<-read.csv("life_exp_2.csv", header=TRUE)
+expec<-read.csv("life_exp.csv", header=TRUE)
 
 #omit the na values
 expec1<-na.omit(expec)
@@ -30,6 +30,9 @@ x2<-log10(expec1$gdpPercap)
 
 #response variable is life expectancy
 y<-expec1$lifeExp
+
+data.new <- as.data.frame(cbind(y, x1, x2))
+write.csv(data.new, file="lifeExp.csv")
 
 ypred<-NULL
 pred.data<-NULL
@@ -87,7 +90,7 @@ abline(0,1)
 
 model_lmer<-function()
 {
-m2<-lmer(y~ x1+x2+(1+x2|country), data=expec1, na.action="na.omit", REML=FALSE)
+m2<-lmer(y~ x1+x2+(1+x1|country), data=expec1, na.action="na.omit", REML=FALSE)
 
 temp<-data.frame(coef(m2)[1])
 
